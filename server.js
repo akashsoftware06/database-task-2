@@ -1,24 +1,31 @@
+
 const express = require("express");
 const mongoose = require("mongoose");
-
 const Post = require("./models/Post");
 
 const app = express();
-
 const PORT = 5000;
 
-// Middleware
+// Middleware to read JSON data from requests.
 app.use(express.json());
 
 // MongoDB Connection
-mongoose
-  .connect("mongodb://127.0.0.1:27017/databaseTask")
-  .then(() => {
+const connectDB = async () => {
+  try {
+    await mongoose.connect(
+      "mongodb://127.0.0.1:27017/databaseTask"
+    );
+
     console.log("MongoDB Connected Successfully");
-  })
-  .catch((error) => {
-    console.log("MongoDB Connection Error:", error);
-  });
+
+    // Start the server after MongoDB connects.
+    app.listen(PORT, () => {
+      console.log(`Server running at http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error("MongoDB Connection Error:", error.message);
+  }
+};
 
 // Test Route
 app.get("/", (req, res) => {
@@ -39,19 +46,29 @@ app.get("/getPosts", async (req, res) => {
   }
 });
 
-// POST - Add New Post
+// POST - Add a New Post
 app.post("/addPosts", async (req, res) => {
   try {
     const { title, content } = req.body;
+
+    if (typeof title !== "string" || typeof content !== "string") {
+      return res.status(400).json({
+        message: "Title and content must be strings",
+      });
+    }
 
     const newPost = new Post({
       title,
       content,
     });
 
+    // Save the post to MongoDB.
     const savedPost = await newPost.save();
 
-    res.status(201).json(savedPost);
+    res.status(201).json({
+      message: "Post added successfully",
+      post: savedPost,
+    });
   } catch (error) {
     res.status(500).json({
       message: "Error adding post",
@@ -60,10 +77,19 @@ app.post("/addPosts", async (req, res) => {
   }
 });
 
-// DELETE - Delete a Post
-app.delete("/delPosts/:id", async (req, res) => {
+// DELETE - Delete a Post using its ID from the request body.
+app.delete("/delPosts", async (req, res) => {
   try {
-    const deletedPost = await Post.findByIdAndDelete(req.params.id);
+    const { id } = req.body;
+
+    if (!id || !mongoose.isValidObjectId(id)) {
+      return res.status(400).json({
+        message: "Please provide a valid post ID in the request body",
+      });
+    }
+
+    // Find the post by ID and delete it from MongoDB.
+    const deletedPost = await Post.findByIdAndDelete(id);
 
     if (!deletedPost) {
       return res.status(404).json({
@@ -83,13 +109,38 @@ app.delete("/delPosts/:id", async (req, res) => {
   }
 });
 
-// PATCH - Update a Post
+// PATCH - Update a Particular Post using its ID.
 app.patch("/post/:id", async (req, res) => {
   try {
+    const { id } = req.params;
+    const { title, content } = req.body;
+
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({
+        message: "Invalid post ID",
+      });
+    }
+
+    if (title === undefined && content === undefined) {
+      return res.status(400).json({
+        message: "Provide title or content to update",
+      });
+    }
+
+    if (
+      (title !== undefined && typeof title !== "string") ||
+      (content !== undefined && typeof content !== "string")
+    ) {
+      return res.status(400).json({
+        message: "Title and content must be strings",
+      });
+    }
+
+    // Update the specified fields and return the updated post.
     const updatedPost = await Post.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
+      id,
+      { $set: { ...(title !== undefined && { title }), ...(content !== undefined && { content }) } },
+      { new: true, runValidators: true }
     );
 
     if (!updatedPost) {
@@ -110,7 +161,5 @@ app.patch("/post/:id", async (req, res) => {
   }
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Connect to MongoDB and start the server.
+connectDB();
